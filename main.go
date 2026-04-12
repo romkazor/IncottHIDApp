@@ -13,6 +13,7 @@ var iconData []byte
 var version = "dev"
 
 func main() {
+	initPaths()
 	loadConfig()
 
 	logFile := initLogger()

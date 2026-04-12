@@ -37,10 +37,17 @@ func TestIsValidRepo(t *testing.T) {
 		{"", false},
 		{"romkazor/IncottHIDApp", true},
 		{"user/repo", true},
+		{"user.name/repo.name", true},
+		{"user_1/repo-2", true},
 		{"no-slash", false},
 		{"/missing-owner", false},
 		{"missing-repo/", false},
 		{"too/many/slashes", false},
+		{"../../evil/path", false},
+		{"user/repo?query", false},
+		{"user/repo#frag", false},
+		{"user/repo@branch", false},
+		{"user /repo", false}, // space not allowed
 	}
 	for _, tt := range tests {
 		got := isValidRepo(tt.repo)

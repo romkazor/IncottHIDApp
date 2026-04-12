@@ -5,6 +5,24 @@ import (
 	"testing"
 )
 
+func TestEscapePowerShellSingleQuoted(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"cs2.exe", "cs2.exe"},
+		{"", ""},
+		{"it's", "it''s"},
+		{"'; calc; '", "''; calc; ''"},
+		{"'''", "''''''"},
+	}
+	for _, tt := range tests {
+		got := escapePowerShellSingleQuoted(tt.in)
+		if got != tt.want {
+			t.Errorf("escapePowerShellSingleQuoted(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestParseTargetApps(t *testing.T) {
 	tests := []struct {
 		raw  string

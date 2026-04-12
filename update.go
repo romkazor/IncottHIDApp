@@ -113,8 +113,13 @@ type httpError struct{ Code int }
 func (e *httpError) Error() string { return "github api returned status " + strconv.Itoa(e.Code) }
 
 // openBrowser opens the given URL in the default browser (Windows-only).
+// Uses rundll32 url.dll to avoid any shell metacharacter interpretation.
+// Only https URLs are accepted to prevent launching arbitrary protocols.
 func openBrowser(url string) error {
-	cmd := exec.Command("cmd", "/c", "start", "", url)
+	if !strings.HasPrefix(url, "https://") {
+		return &httpError{Code: 0}
+	}
+	cmd := exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	return cmd.Start()
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,7 +40,29 @@ var (
 
 	// Update repo: "owner/repo" on github.com (UI-goroutine / background worker reads only).
 	updateRepo = defaultUpdateRepo
+
+	// exeDir is the directory containing the running executable, cached once at startup.
+	// All persistence files (settings.json, incott.log) live here so autostart (CWD=System32) works correctly.
+	exeDir string
 )
+
+// initPaths determines the executable directory. Called once at program start.
+func initPaths() {
+	exe, err := os.Executable()
+	if err != nil {
+		exeDir = "." // fallback to CWD
+		return
+	}
+	exeDir = filepath.Dir(exe)
+}
+
+// resolvePath returns an absolute path for a file stored next to the executable.
+func resolvePath(name string) string {
+	if exeDir == "" {
+		return name
+	}
+	return filepath.Join(exeDir, name)
+}
 
 // parseTargetApps splits comma-separated exe names and lowercases them.
 func parseTargetApps(raw string) []string {
@@ -66,7 +89,7 @@ func setTargetApps(raw string) {
 func loadConfig() {
 	setTargetApps("cs2.exe")
 
-	data, err := os.ReadFile("settings.json")
+	data, err := os.ReadFile(resolvePath("settings.json"))
 	if err != nil {
 		return
 	}
@@ -85,13 +108,13 @@ func loadConfig() {
 	}
 }
 
-// isValidRepo checks that the repo string is in "owner/repo" format (contains a single slash).
+// validRepoRe matches GitHub's owner/repo slug format (alphanumeric, dash, underscore, dot).
+var validRepoRe = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+
+// isValidRepo checks that the repo string is a safe "owner/repo" identifier
+// that won't introduce path traversal or URL-manipulation characters.
 func isValidRepo(repo string) bool {
-	if repo == "" {
-		return false
-	}
-	parts := strings.Split(repo, "/")
-	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
+	return validRepoRe.MatchString(repo)
 }
 
 func saveConfig() {
@@ -112,7 +135,9 @@ func saveConfig() {
 		logDebug("failed to marshal config: %v", err)
 		return
 	}
-	os.WriteFile("settings.json", data, 0644)
+	if err := os.WriteFile(resolvePath("settings.json"), data, 0644); err != nil {
+		logDebug("failed to write settings.json: %v", err)
+	}
 }
 
 // setAutoStart adds or removes the app from Windows autostart via registry.
@@ -148,8 +173,15 @@ func setAutoStart(enable bool) {
 	}
 }
 
+// escapePowerShellSingleQuoted escapes a string for use inside a single-quoted PowerShell literal.
+// In PS single-quoted strings, the only special character is the single quote itself, which is escaped by doubling.
+func escapePowerShellSingleQuoted(s string) string {
+	return strings.ReplaceAll(s, "'", "''")
+}
+
 func promptForExe(current string) string {
-	script := fmt.Sprintf(`Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.Interaction]::InputBox('Enter process names, comma-separated (e.g., cs2.exe, dota2.exe):', 'Auto-boost Settings', '%s')`, current)
+	safe := escapePowerShellSingleQuoted(current)
+	script := fmt.Sprintf(`Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.Interaction]::InputBox('Enter process names, comma-separated (e.g., cs2.exe, dota2.exe):', 'Auto-boost Settings', '%s')`, safe)
 	cmd := exec.Command("powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -141,6 +142,10 @@ var (
 
 	// Connected device info
 	deviceName string
+
+	// statusReceived is set once the first real status report has been parsed.
+	// Used by gameMonitorWorker to avoid saving a stale default (1000 Hz) as savedHz.
+	statusReceived atomic.Bool
 )
 
 // Preset lookup tables
@@ -424,6 +429,7 @@ func updateStatus(buf []byte) {
 	boostMu.Lock()
 	currentHz = hz
 	boostMu.Unlock()
+	statusReceived.Store(true)
 
 	refreshStatusText()
 	updateCheckmarks()
@@ -433,7 +439,10 @@ func updateStatus(buf []byte) {
 // Returns true if a matching response was received.
 func readDeviceSetting(dev hid.Device, cmd byte, sub byte) bool {
 	reqBuf = [9]byte{0x09, cmd, sub}
-	dev.SendFeatureReport(reqBuf[:])
+	if _, err := dev.SendFeatureReport(reqBuf[:]); err != nil {
+		logDebug("readDeviceSetting: send failed (cmd=0x%02X sub=0x%02X): %v", cmd, sub, err)
+		return false
+	}
 
 	for i := 0; i < 10; i++ {
 		time.Sleep(50 * time.Millisecond)
@@ -502,9 +511,10 @@ func mouseWorker() {
 			continue
 		}
 
+		// Hold mu during the entire init sequence so UI-triggered apply* calls
+		// cannot call SendFeatureReport concurrently on the same handle.
 		mu.Lock()
 		activeDevice = targetDevice
-		mu.Unlock()
 
 		if devProduct != "" {
 			deviceName = devProduct
@@ -622,6 +632,9 @@ func mouseWorker() {
 			receiverLEDItems.checkValue(currentReceiverLED)
 		}
 
+		// Release mu — init finished, UI apply* calls are now allowed to send reports.
+		mu.Unlock()
+
 		// Wait for first status from interrupt read (battery, DPI, Hz)
 		buf := make([]byte, 64)
 		statusLogged := false
@@ -665,6 +678,7 @@ func mouseWorker() {
 		activeDevice.Close()
 		activeDevice = nil
 		mu.Unlock()
+		statusReceived.Store(false)
 
 		if statusItem != nil {
 			statusItem.SetTitle("Connection lost...")
@@ -698,6 +712,12 @@ func gameMonitorWorker() {
 		mu.Unlock()
 
 		if !ready {
+			continue
+		}
+
+		// Skip until we've received at least one real status report.
+		// Otherwise savedHz would be the stale default (1000 Hz).
+		if !statusReceived.Load() {
 			continue
 		}
 
