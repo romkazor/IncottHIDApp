@@ -264,8 +264,8 @@ func onReady() {
 
 	// Motion Sync / Angle Snapping / Ripple Control
 	mMotionSync = systray.AddMenuItemCheckbox("Motion Sync", "Toggle motion sync", false)
-	mAngleSnap = systray.AddMenuItemCheckbox("Angle Snapping (recomm off in game)", "Toggle angle snapping", false)
-	mRippleCtrl = systray.AddMenuItemCheckbox("Ripple Control (recomm off in game)", "Toggle ripple control", false)
+	mAngleSnap = systray.AddMenuItemCheckbox("Angle Snapping (recommended off in game)", "Toggle angle snapping", false)
+	mRippleCtrl = systray.AddMenuItemCheckbox("Ripple Control (recommended off in game)", "Toggle ripple control", false)
 
 	// Receiver LED
 	mRecLED := systray.AddMenuItem("Receiver LED", "Receiver LED indicator mode")
