@@ -4,7 +4,13 @@
   <img src="icons/mouse.png" alt="Incott Mouse" width="120">
 </p>
 
-Lightweight Windows system tray utility for **Incott** wireless mice. Communicates directly with the mouse over HID — no vendor software required.
+Lightweight Windows system tray utility for **Incott** wireless mice. Communicates directly with the mouse over HID — no vendor software required. The app was built by reverse-engineering the WebHID driver and using Claude Code.
+
+# Screenshots
+
+<p align="center">
+  <img src="screenshots/incotthidapp.png" alt="Incott Mouse" width="300">
+</p>
 
 ## Features
 
