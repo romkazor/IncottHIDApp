@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Run tests
+        run: go test -v ./...
+
+      - name: Compile Windows resource (icon)
+        shell: pwsh
+        run: |
+          $windres = (Get-Command windres -ErrorAction SilentlyContinue).Source
+          if (-not $windres) {
+            $windres = "C:\msys64\mingw64\bin\windres.exe"
+          }
+          Push-Location icons
+          & $windres app.rc -o ../app_windows.syso
+          Pop-Location
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 1
+        run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w" .
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: IncottDriver.exe
+          generate_release_notes: true
+          draft: false
+          prerelease: false
