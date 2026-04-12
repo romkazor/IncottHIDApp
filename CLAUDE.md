@@ -43,7 +43,7 @@ go test -v ./...
 go test -cover ./...
 ```
 
-Coverage: ~9% (100% for all pure functions; I/O and UI layers are not tested since they require real hardware/systray). Tests cover all parsing functions (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`, `parseTargetApps`, `parseSemver`, `compareSemver`, `isValidRepo`, `buildReleasesAPIURL`), filters (`isMouseDevice`), labels (`lodLabel`, `sleepLabel`), and preset lookups (`presets`).
+Coverage: ~9% (100% for all pure functions; I/O and UI layers are not tested since they require real hardware/systray). Tests cover all parsing functions (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`, `parseTargetApps`, `parseSemver`, `compareSemver`, `isValidRepo`, `buildReleasesAPIURL`), filters (`isMouseDevice`), labels (`lodLabel`, `sleepLabel`), preset lookups (`presets`), and security helpers (`escapePowerShellSingleQuoted`).
 
 ### Icons
 
@@ -72,8 +72,8 @@ windres app.rc -o app_windows.syso
 
 | File | Responsibility |
 |---|---|
-| `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected), spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
-| `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog), `parseTargetApps`/`setTargetApps` (comma-separated app list), `isValidRepo`, `defaultUpdateRepo` constant |
+| `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected), calls `initPaths` first, spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
+| `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog) with `escapePowerShellSingleQuoted`, `parseTargetApps`/`setTargetApps`, `isValidRepo` (regex allowlist), `initPaths`/`resolvePath` (absolute paths next to exe), `defaultUpdateRepo` constant |
 | `logging.go` | `logInfo` (always writes), `logDebug` (only when `debugEnabled atomic.Bool` is true). Log file: `incott.log` |
 | `device.go` | HID constants, pre-allocated report buffers, all `apply*` functions, pure parsing helpers (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`), `mouseWorker`, `gameMonitorWorker`, `findRunningApp`, `isMouseDevice` |
 | `ui.go` | Menu structs (fixed arrays replacing maps), `onReady`, `refreshStatusText`, `refreshUpdateMenuItem`, `updateCheckmarks`, click forwarding via goroutines |
@@ -98,8 +98,8 @@ windres app.rc -o app_windows.syso
 Four concurrent components:
 
 1. **systray UI** (`onReady` in `ui.go`) — system tray menu with DPI, Hz, LOD, Debounce, Sleep presets, toggle checkboxes (Motion Sync, Angle Snapping, Ripple Control), Receiver LED submenu, auto-boost toggle, autostart, debug logging toggle, "Check for updates" item. Each submenu group uses `forwardClicks()` which spawns one goroutine per menu item, reducing the main select to ~9 cases.
-2. **`mouseWorker`** (`device.go`) — reconnection loop. Enumerates HID devices by vendor/product ID, filters by `isMouseDevice(info.Product)` to avoid connecting to Incott keyboards sharing the same vendor ID. Opens UsagePage `0xFF05`. On connect, reads current settings (status via `0x89`, debounce via `0x85/0x01`, LOD + motion sync via `0x84`, angle snapping via `0x84/0x03`, ripple control via `0x84/0x02`, receiver LED via `0x88`, sleep via `0x85/0x03`). Device model name is read from HID `Product` field and shown in tray tooltip. Then enters a read loop for live status updates.
-3. **`gameMonitorWorker`** (`device.go`) — polls every 3s via a single `CreateToolhelp32Snapshot` call. Checks all target apps (`targetAppsLower`, comma-separated in config) in one pass over the process list. Auto-boosts to 8000 Hz when any target is found, restores on exit.
+2. **`mouseWorker`** (`device.go`) — reconnection loop. Enumerates HID devices by vendor/product ID, filters by `isMouseDevice(info.Product)` to avoid connecting to Incott keyboards sharing the same vendor ID. Opens UsagePage `0xFF05`. The **entire init sequence runs under `mu.Lock()`** — setting `activeDevice` and reading all device settings (status via `0x89`, debounce via `0x85/0x01`, LOD + motion sync via `0x84`, angle snapping via `0x84/0x03`, ripple control via `0x84/0x02`, receiver LED via `0x88`, sleep via `0x85/0x03`) are in one critical section so UI-triggered `apply*` calls cannot concurrently send feature reports on the same handle. After init, `mu` is released and the main `Read` loop runs unlocked. Device model name is read from HID `Product` field and shown in tray tooltip.
+3. **`gameMonitorWorker`** (`device.go`) — polls every 3s via a single `CreateToolhelp32Snapshot` call. Checks all target apps (`targetAppsLower`, comma-separated in config) in one pass over the process list. **Skips activation until `statusReceived.Load()` is true** — prevents saving the stale default `currentHz = 1000` as `savedHz` when the game is running before the device has reported its actual rate. Auto-boosts to 8000 Hz when any target is found, restores on exit.
 4. **`updateCheckWorker`** (`update.go`) — after a 10s startup delay, calls GitHub Releases API at `https://api.github.com/repos/<updateRepo>/releases/latest`, parses `tag_name`, compares with `version` via `compareSemver`. If newer, sets global state and calls `refreshUpdateMenuItem` so the tray menu item switches to "Update available: vX.Y.Z". Clicking the item opens the release URL in the default browser. Skipped when `version == "dev"` (local unversioned build).
 
 ### HID Protocol (feature reports)
@@ -132,8 +132,21 @@ Receiver LED modes: `0x00`=Connect & polling rate, `0x01`=Battery status, `0x02`
 
 ### Synchronization
 
-- `mu` (`sync.Mutex`) guards `activeDevice` and `sendBuf` — used by `mouseWorker` and all `apply*` calls.
-- `boostMu` (`sync.Mutex`) guards `currentHz`, `savedHz`, `autoBoostEnabled`, `targetApps`, `targetAppsLower`.
+- `mu` (`sync.Mutex`) — guards `activeDevice`, `sendBuf`, AND the HID device handle during `mouseWorker` init sequence. All `apply*` functions acquire `mu` before calling `SendFeatureReport`, and `mouseWorker` holds `mu` while reading settings on connect. This serializes all access to the device handle.
+- `boostMu` (`sync.Mutex`) — guards `currentHz`, `autoBoostEnabled`, `targetApps`, `targetAppsLower`.
+- `debugEnabled` (`atomic.Bool`) — lock-free toggle for debug logging.
+- `statusReceived` (`atomic.Bool`) — lock-free flag, set when the first real status interrupt is parsed; read by `gameMonitorWorker` to avoid acting on stale default values.
+
+### Paths
+
+- `initPaths()` runs at startup and caches `filepath.Dir(os.Executable())` in `exeDir`.
+- `resolvePath(name)` returns `filepath.Join(exeDir, name)` so `settings.json` and `incott.log` always live next to the executable, regardless of CWD (important for autostart where CWD is `C:\Windows\System32`).
+
+### Security
+
+- **`openBrowser`** (`update.go`) uses `rundll32 url.dll,FileProtocolHandler` instead of `cmd /c start` to avoid shell metacharacter interpretation. Only URLs with `https://` prefix are accepted.
+- **`promptForExe`** (`config.go`) escapes single quotes via `escapePowerShellSingleQuoted` before interpolating user-controlled `targetApps` into the PowerShell `InputBox` call, preventing PS injection from a crafted `settings.json`.
+- **`isValidRepo`** (`config.go`) uses a regex allowlist `^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$` to reject path traversal and URL-manipulation characters in the `update_repo` config value.
 
 ### Logging
 
