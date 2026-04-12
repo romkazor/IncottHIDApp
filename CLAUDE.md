@@ -14,11 +14,36 @@ Windows system tray driver for **Incott** wireless mice (Ghero, G23, G24, G23V2,
 ## Build & Run
 
 ```bash
-go build -o IncottDriver.exe -ldflags="-H windowsgui" .
+# Full build with tests (recommended)
+mingw32-make build
+
+# Or via batch script (Windows without make)
+./build.bat
+
+# Direct build with version injected for update checker
+go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=v0.1.0" .
 ./IncottDriver.exe
 ```
 
-The `-H windowsgui` linker flag hides the console window. Omit it during development to see stdout output. Requires CGO — the `CC` environment variable should point to a modern MinGW-w64 GCC (TDM-GCC 10.x is incompatible with Go 1.26+).
+Linker flags:
+- `-H windowsgui` — hide the console window
+- `-s -w` — strip symbol table and DWARF info (~50% smaller binary)
+- `-X main.version=<tag>` — inject version for the update checker (defaults to `"dev"` which disables the check)
+
+Requires CGO — the `CC` environment variable should point to a modern MinGW-w64 GCC (TDM-GCC 10.x is incompatible with Go 1.26+). WinLibs POSIX UCRT recommended: `winget install BrechtSanders.WinLibs.POSIX.UCRT`.
+
+### CI/CD
+
+`.github/workflows/release.yml` — triggers on `v*` tag push. Runs tests, compiles Windows resource (`windres icons/app.rc`), builds with version injection, publishes binary to GitHub Releases.
+
+### Tests
+
+```bash
+go test -v ./...
+go test -cover ./...
+```
+
+Coverage: ~9% (100% for all pure functions; I/O and UI layers are not tested since they require real hardware/systray). Tests cover all parsing functions (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`, `parseTargetApps`, `parseSemver`, `compareSemver`, `isValidRepo`, `buildReleasesAPIURL`), filters (`isMouseDevice`), labels (`lodLabel`, `sleepLabel`), and preset lookups (`presets`).
 
 ### Icons
 
@@ -47,19 +72,35 @@ windres app.rc -o app_windows.syso
 
 | File | Responsibility |
 |---|---|
-| `main.go` | Entry point, tray icon via `go:embed tray_icon.ico`, `onExit` |
-| `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog), `parseTargetApps`/`setTargetApps` (comma-separated app list) |
-| `logging.go` | `logInfo` (always writes), `logDebug` (only when debug enabled via `atomic.Bool`). Log file: `incott.log` |
-| `device.go` | HID constants, pre-allocated report buffers, all `apply*` functions, `mouseWorker`, `gameMonitorWorker`, `findRunningApp`, `isMouseDevice` (product name filter) |
-| `ui.go` | Menu structs (fixed arrays replacing maps), `onReady`, `refreshStatusText`, `updateCheckmarks`, click forwarding via goroutines |
+| `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected), spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
+| `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog), `parseTargetApps`/`setTargetApps` (comma-separated app list), `isValidRepo`, `defaultUpdateRepo` constant |
+| `logging.go` | `logInfo` (always writes), `logDebug` (only when `debugEnabled atomic.Bool` is true). Log file: `incott.log` |
+| `device.go` | HID constants, pre-allocated report buffers, all `apply*` functions, pure parsing helpers (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`), `mouseWorker`, `gameMonitorWorker`, `findRunningApp`, `isMouseDevice` |
+| `ui.go` | Menu structs (fixed arrays replacing maps), `onReady`, `refreshStatusText`, `refreshUpdateMenuItem`, `updateCheckmarks`, click forwarding via goroutines |
+| `update.go` | `checkForUpdate`, `compareSemver`/`parseSemver`, `buildReleasesAPIURL`, `openBrowser`, `updateCheckWorker` goroutine |
+| `*_test.go` | Unit tests for pure functions |
+
+### Non-code files
+
+| File | Purpose |
+|---|---|
+| `Makefile` / `build.bat` | `make build` / `build.bat` — run tests then build |
+| `.github/workflows/release.yml` | CI: build + publish binary on tag push |
+| `icons/mouse.png` | Source image |
+| `icons/tray_icon.ico` | Tray icon, embedded via `go:embed` |
+| `icons/app.ico` + `icons/app.rc` | Windows exe icon (compiled into `app_windows.syso` via `windres`) |
+| `settings.json.example` | Reference config with all fields |
+| `LICENSE` | MIT |
+| `.gitignore` | Excludes `IncottDriver.exe`, `incott.log`, `settings.json`, `app_windows.syso`, `docs/`, `.claude/` |
 
 ## Architecture
 
-Three concurrent components:
+Four concurrent components:
 
-1. **systray UI** (`onReady` in `ui.go`) — system tray menu with DPI, Hz, LOD, Debounce, Sleep presets, toggle checkboxes (Motion Sync, Angle Snapping, Ripple Control), Receiver LED submenu, auto-boost toggle, autostart, debug logging toggle. Each submenu group uses `forwardClicks()` which spawns one goroutine per menu item, reducing the main select to ~8 cases.
+1. **systray UI** (`onReady` in `ui.go`) — system tray menu with DPI, Hz, LOD, Debounce, Sleep presets, toggle checkboxes (Motion Sync, Angle Snapping, Ripple Control), Receiver LED submenu, auto-boost toggle, autostart, debug logging toggle, "Check for updates" item. Each submenu group uses `forwardClicks()` which spawns one goroutine per menu item, reducing the main select to ~9 cases.
 2. **`mouseWorker`** (`device.go`) — reconnection loop. Enumerates HID devices by vendor/product ID, filters by `isMouseDevice(info.Product)` to avoid connecting to Incott keyboards sharing the same vendor ID. Opens UsagePage `0xFF05`. On connect, reads current settings (status via `0x89`, debounce via `0x85/0x01`, LOD + motion sync via `0x84`, angle snapping via `0x84/0x03`, ripple control via `0x84/0x02`, receiver LED via `0x88`, sleep via `0x85/0x03`). Device model name is read from HID `Product` field and shown in tray tooltip. Then enters a read loop for live status updates.
 3. **`gameMonitorWorker`** (`device.go`) — polls every 3s via a single `CreateToolhelp32Snapshot` call. Checks all target apps (`targetAppsLower`, comma-separated in config) in one pass over the process list. Auto-boosts to 8000 Hz when any target is found, restores on exit.
+4. **`updateCheckWorker`** (`update.go`) — after a 10s startup delay, calls GitHub Releases API at `https://api.github.com/repos/<updateRepo>/releases/latest`, parses `tag_name`, compares with `version` via `compareSemver`. If newer, sets global state and calls `refreshUpdateMenuItem` so the tray menu item switches to "Update available: vX.Y.Z". Clicking the item opens the release URL in the default browser. Skipped when `version == "dev"` (local unversioned build).
 
 ### HID Protocol (feature reports)
 
@@ -102,7 +143,7 @@ Receiver LED modes: `0x00`=Connect & polling rate, `0x01`=Battery status, `0x02`
 
 ### Persistence
 
-- **`settings.json`** — stores `target_game_exe` (comma-separated app list), `auto_boost`, `auto_start`, `debug`. Loaded on startup, saved on setting changes.
+- **`settings.json`** — stores `target_game_exe` (comma-separated app list), `auto_boost`, `auto_start`, `debug`, `update_repo`. Loaded on startup, saved on setting changes. **Not created on first launch** — only written when the user changes a setting. See `settings.json.example` for reference.
 - **Windows Registry** (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) — autostart entry under key `IncottDriver`.
 
 ### Performance Notes

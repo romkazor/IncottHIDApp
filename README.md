@@ -32,6 +32,8 @@ Lightweight Windows system tray utility for **Incott** wireless mice. Communicat
 **Other:**
 - Start with Windows (autostart via registry)
 - Two-level logging (`incott.log`): INFO for user actions, DEBUG for HID protocol details
+- **Update notifications** — checks GitHub Releases on startup; a new menu item appears when a newer version is available. Clicking it opens the release page in the browser. The repo used for checks is configurable (fork support via `update_repo` setting)
+- Automatic device detection — works with Ghero, G23, G24, G23V2, Zero 29, Zero 39 (same chipset, different firmware)
 
 ## Download
 
@@ -76,8 +78,8 @@ The workflow at `.github/workflows/release.yml` runs tests, builds the Windows b
 
 4. Clone and build:
    ```bash
-   git clone https://github.com/anthropics/MouseIncott.git
-   cd MouseIncott
+   git clone https://github.com/romkazor/IncottHIDApp.git
+   cd IncottHIDApp
    ```
 
    Build options:
@@ -91,8 +93,9 @@ The workflow at `.github/workflows/release.yml` runs tests, builds the Windows b
      ```
    - **Direct go build** (skips tests):
      ```bash
-     go build -o IncottDriver.exe -ldflags="-H windowsgui" .
+     go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w" .
      ```
+     Release builds on CI also inject the version via `-X main.version=v1.0.0` which enables the in-app update checker.
 
 5. (Optional) Rebuild the exe icon after changing `icons/mouse.png`:
    ```bash
@@ -122,14 +125,15 @@ docker run --rm -v "$(pwd):/src" -w /src \
 
 ## Configuration
 
-Settings are stored in `settings.json` (created automatically on first run):
+Settings are stored in `settings.json` next to the executable. The file is created automatically the first time you change a setting from the tray menu. See [`settings.json.example`](settings.json.example) for a reference.
 
 ```json
 {
   "target_game_exe": "cs2.exe, valorant.exe",
   "auto_boost": true,
   "auto_start": false,
-  "debug": false
+  "debug": false,
+  "update_repo": "romkazor/IncottHIDApp"
 }
 ```
 
@@ -139,6 +143,7 @@ Settings are stored in `settings.json` (created automatically on first run):
 | `auto_boost` | Enable automatic 8000 Hz when target app is detected |
 | `auto_start` | Launch on Windows startup |
 | `debug` | Write detailed HID protocol data to `incott.log` |
+| `update_repo` | GitHub `owner/repo` used for update checks (fork support). Leave empty to use the default. |
 
 ## Supported Devices
 
@@ -157,4 +162,4 @@ All Incott mice sharing the same chipset (Vendor ID `0x093A`) are supported:
 
 ## License
 
-MIT
+[MIT](LICENSE) © romkazor
