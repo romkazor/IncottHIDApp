@@ -1,0 +1,7 @@
+{
+  "target_game_exe": "cs2.exe, valorant.exe",
+  "auto_boost": true,
+  "auto_start": false,
+  "debug": false,
+  "update_repo": "romkazor/IncottHIDApp"
+}
