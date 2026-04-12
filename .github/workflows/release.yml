@@ -45,23 +45,23 @@ jobs:
         run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=${{ github.ref_name }}" .
 
       - name: Extract tag annotation
-        id: tag
         shell: bash
         run: |
-          MSG=$(git tag -l --format='%(contents)' "${{ github.ref_name }}")
-          if [ -z "$MSG" ]; then
-            MSG="Release ${{ github.ref_name }}"
+          # Ensure annotated tag object is available locally
+          git fetch --tags --force
+          # Prefer annotated tag message (strips header/PGP); fall back if lightweight
+          git cat-file -p "${{ github.ref_name }}" 2>/dev/null | sed '1,/^$/d' > release_body.md || true
+          if [ ! -s release_body.md ]; then
+            echo "Release ${{ github.ref_name }}" > release_body.md
           fi
-          {
-            echo 'body<<RELEASE_BODY_EOF'
-            echo "$MSG"
-            echo 'RELEASE_BODY_EOF'
-          } >> "$GITHUB_OUTPUT"
+          echo "--- release body ---"
+          cat release_body.md
+          echo "--- end ---"
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: IncottDriver.exe
-          body: ${{ steps.tag.outputs.body }}
+          body_path: release_body.md
           draft: false
           prerelease: false
