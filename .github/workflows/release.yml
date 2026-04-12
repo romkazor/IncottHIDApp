@@ -39,7 +39,7 @@ jobs:
       - name: Build binary
         env:
           CGO_ENABLED: 1
-        run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w" .
+        run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=${{ github.ref_name }}" .
 
       - name: Create release
         uses: softprops/action-gh-release@v2

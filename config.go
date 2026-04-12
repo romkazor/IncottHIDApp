@@ -13,7 +13,10 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-const appName = "IncottDriver" // Registry key name
+const (
+	appName           = "IncottDriver"        // Registry key name
+	defaultUpdateRepo = "romkazor/IncottHIDApp" // Fallback GitHub repo for update checks
+)
 
 // AppConfig holds persisted user settings.
 type AppConfig struct {
@@ -21,6 +24,7 @@ type AppConfig struct {
 	AutoBoost     bool   `json:"auto_boost"`
 	AutoStart     bool   `json:"auto_start"`
 	Debug         bool   `json:"debug"`
+	UpdateRepo    string `json:"update_repo"` // "owner/repo" on github.com, empty = use default
 }
 
 var (
@@ -32,6 +36,9 @@ var (
 
 	// Autostart (UI-goroutine only, no lock needed)
 	autoStartEnabled bool
+
+	// Update repo: "owner/repo" on github.com (UI-goroutine / background worker reads only).
+	updateRepo = defaultUpdateRepo
 )
 
 // parseTargetApps splits comma-separated exe names and lowercases them.
@@ -73,6 +80,18 @@ func loadConfig() {
 	autoBoostEnabled = config.AutoBoost
 	autoStartEnabled = config.AutoStart
 	debugEnabled.Store(config.Debug)
+	if isValidRepo(config.UpdateRepo) {
+		updateRepo = config.UpdateRepo
+	}
+}
+
+// isValidRepo checks that the repo string is in "owner/repo" format (contains a single slash).
+func isValidRepo(repo string) bool {
+	if repo == "" {
+		return false
+	}
+	parts := strings.Split(repo, "/")
+	return len(parts) == 2 && parts[0] != "" && parts[1] != ""
 }
 
 func saveConfig() {
@@ -86,6 +105,7 @@ func saveConfig() {
 		AutoBoost:     boostState,
 		AutoStart:     autoStartEnabled,
 		Debug:         debugEnabled.Load(),
+		UpdateRepo:    updateRepo,
 	}
 	data, err := json.Marshal(config)
 	if err != nil {

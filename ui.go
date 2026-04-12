@@ -164,6 +164,7 @@ var (
 	mMotionSync      *systray.MenuItem
 	mAngleSnap       *systray.MenuItem
 	mRippleCtrl      *systray.MenuItem
+	mUpdate          *systray.MenuItem
 	dpiItems         dpiMenu
 	hzItems          hzMenu
 	lodItems         lodMenu
@@ -190,6 +191,18 @@ func sleepLabel(seconds int) string {
 		return strconv.Itoa(seconds) + "s"
 	}
 	return strconv.Itoa(seconds/60) + "m"
+}
+
+func refreshUpdateMenuItem() {
+	if mUpdate == nil {
+		return
+	}
+	updateMu.Lock()
+	defer updateMu.Unlock()
+	if updateAvailable {
+		mUpdate.SetTitle("Update available: " + latestVersion)
+		mUpdate.SetTooltip("Click to open the release page in browser")
+	}
 }
 
 func refreshStatusText() {
@@ -259,6 +272,7 @@ func onReady() {
 	// App settings
 	mAutoStart := systray.AddMenuItemCheckbox("Start with Windows", "Add to Windows autostart", autoStartEnabled)
 	mDebugToggle := systray.AddMenuItemCheckbox("Debug logging (incott.log)", "Write debug events to log file", debugEnabled.Load())
+	mUpdate = systray.AddMenuItem("Check for updates", "Check GitHub for new releases")
 
 	systray.AddSeparator()
 
@@ -381,6 +395,19 @@ func onReady() {
 					mDebugToggle.Uncheck()
 				}
 				saveConfig()
+
+			case <-mUpdate.ClickedCh:
+				updateMu.Lock()
+				hasUpdate := updateAvailable
+				url := latestURL
+				updateMu.Unlock()
+				if hasUpdate && url != "" {
+					logInfo("user opened update page: %s", url)
+					openBrowser(url)
+				} else {
+					logInfo("user triggered manual update check")
+					go runUpdateCheck()
+				}
 
 			case <-mAutoBoost.ClickedCh:
 				boostMu.Lock()
