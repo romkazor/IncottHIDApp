@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -41,10 +44,24 @@ jobs:
           CGO_ENABLED: 1
         run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=${{ github.ref_name }}" .
 
+      - name: Extract tag annotation
+        id: tag
+        shell: bash
+        run: |
+          MSG=$(git tag -l --format='%(contents)' "${{ github.ref_name }}")
+          if [ -z "$MSG" ]; then
+            MSG="Release ${{ github.ref_name }}"
+          fi
+          {
+            echo 'body<<RELEASE_BODY_EOF'
+            echo "$MSG"
+            echo 'RELEASE_BODY_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: IncottDriver.exe
-          generate_release_notes: true
+          body: ${{ steps.tag.outputs.body }}
           draft: false
           prerelease: false
