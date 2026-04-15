@@ -31,6 +31,7 @@ Lightweight Windows system tray utility for **Incott** wireless mice. Communicat
 
 **Other:**
 - Start with Windows (autostart via registry). Config and log files (`settings.json`, `incott.log`) always live next to the executable, so autostart works correctly regardless of the launcher's working directory.
+- **Single-instance guard** — only one copy can run at a time per machine. Launching a second copy (e.g. manually after autostart) shows a "IncottDriver is already running" dialog and exits without touching `settings.json` or `incott.log`. Prevents HID contention between concurrent instances.
 - Two-level logging (`incott.log`): INFO for user actions, DEBUG for HID protocol details
 - **Update notifications** — checks GitHub Releases on startup; a new menu item appears when a newer version is available. Clicking it opens the release page in the browser. The repo used for checks is configurable (fork support via `update_repo` setting)
 - Automatic device detection — works with Ghero, G23, G24, G23V2, Zero 29, Zero 39 (same chipset, different firmware)

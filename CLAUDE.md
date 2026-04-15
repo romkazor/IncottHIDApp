@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Windows system tray driver for **Incott** wireless mice (Ghero, G23, G24, G23V2, Zero 29, Zero 39). Communicates with the mouse over HID to control DPI, polling rate, LOD, debounce, sleep timer, motion sync, angle snapping, ripple control, and receiver LED mode. Provides an "auto-boost" feature that switches to 8000 Hz when any of the configured target processes is detected.
 
 - **Language**: Go
-- **Platform**: Windows only (uses `syscall`, `windows/registry`, PowerShell dialogs)
+- **Platform**: Windows only (uses `syscall`, `windows/registry`, PowerShell dialogs, `kernel32`/`user32` direct calls)
 - **Device IDs**: Vendor `0x093A`, Product `0x522C` (wireless) / `0x622C` (charging) — shared across all models
 - **Model detection**: via HID `Product` string from device firmware
 
@@ -43,7 +43,7 @@ go test -v ./...
 go test -cover ./...
 ```
 
-Coverage: ~9% (100% for all pure functions; I/O and UI layers are not tested since they require real hardware/systray). Tests cover all parsing functions (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`, `parseTargetApps`, `parseSemver`, `compareSemver`, `isValidRepo`, `buildReleasesAPIURL`), filters (`isMouseDevice`), labels (`lodLabel`, `sleepLabel`), preset lookups (`presets`), and security helpers (`escapePowerShellSingleQuoted`).
+Coverage: ~9% (100% for all pure functions; I/O and UI layers are not tested since they require real hardware/systray). Tests cover all parsing functions (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`, `parseTargetApps`, `parseSemver`, `compareSemver`, `isValidRepo`, `buildReleasesAPIURL`), filters (`isMouseDevice`), labels (`lodLabel`, `sleepLabel`), preset lookups (`presets`), and security helpers (`escapePowerShellSingleQuoted`). The single-instance guard (`acquireSingleInstance`) is not unit-tested — it relies on a kernel object shared across processes, which can't be meaningfully exercised from a single-process test.
 
 ### Icons
 
@@ -72,7 +72,8 @@ windres app.rc -o app_windows.syso
 
 | File | Responsibility |
 |---|---|
-| `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected), calls `initPaths` first, spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
+| `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected). First statement calls `acquireSingleInstance()` — on failure shows a MessageBox and returns before any other init. Then calls `initPaths`, spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
+| `instance.go` | Single-instance guard via `CreateMutexW` (`kernel32.dll`) with fixed GUID name `Global\IncottDriver-{...}`. `acquireSingleInstance` returns false when another instance already holds the mutex (detected via `ERROR_ALREADY_EXISTS` in `e1`). `showAlreadyRunningDialog` uses `MessageBoxW` (`user32.dll`). Fails open on unexpected errors (logs nothing and allows startup) |
 | `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog) with `escapePowerShellSingleQuoted`, `parseTargetApps`/`setTargetApps`, `isValidRepo` (regex allowlist), `initPaths`/`resolvePath` (absolute paths next to exe), `defaultUpdateRepo` constant |
 | `logging.go` | `logInfo` (always writes), `logDebug` (only when `debugEnabled atomic.Bool` is true). Log file: `incott.log` |
 | `device.go` | HID constants, pre-allocated report buffers, all `apply*` functions, pure parsing helpers (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`), `mouseWorker`, `gameMonitorWorker`, `findRunningApp`, `isMouseDevice` |
@@ -94,6 +95,14 @@ windres app.rc -o app_windows.syso
 | `.gitignore` | Excludes `IncottDriver.exe`, `incott.log`, `settings.json`, `app_windows.syso`, `docs/`, `.claude/` |
 
 ## Architecture
+
+### Startup
+
+1. `main()` calls `acquireSingleInstance()` **first**, before `initPaths` / `loadConfig` / logger / goroutines. This creates a named mutex `Global\IncottDriver-{b5a1c2f8-4d7e-4a8f-9c1d-2e3f4a5b6c7d}` via `CreateMutexW` (direct `syscall.NewLazyDLL("kernel32.dll").NewProc("CreateMutexW").Call`). If `ERROR_ALREADY_EXISTS` (183) is returned in `e1`, the second instance shows a `MessageBoxW` and returns — `settings.json` and `incott.log` are not touched. The `Global\` prefix makes the guard machine-wide (one instance per machine, including across RDP/fast user switching). On any other `CreateMutexW` failure the guard fails open and startup continues.
+2. Mutex handle is held in the package variable `instanceMutexHandle` for process lifetime; kernel releases it automatically on process exit (clean exit, kill, or crash), so there's no stale state like a lock file.
+3. Direct `syscall.NewLazyDLL` is used instead of `golang.org/x/sys/windows.CreateMutex` because the `x/sys/windows` wrapper only populates `err` when `handle == 0` — we need to detect `ERROR_ALREADY_EXISTS` with a valid handle, which is only reliably captured via the `e1` return from `proc.Call()`.
+
+### Runtime
 
 Four concurrent components:
 

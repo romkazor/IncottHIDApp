@@ -13,6 +13,10 @@ var iconData []byte
 var version = "dev"
 
 func main() {
+	if !acquireSingleInstance() {
+		showAlreadyRunningDialog()
+		return
+	}
 	initPaths()
 	loadConfig()
 
