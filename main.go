@@ -25,7 +25,7 @@ func main() {
 		defer logFile.Close()
 	}
 
-	logInfo("=== Incott driver started (version: %s) ===", version)
+	logInfo("=== IncottHIDApp started (version: %s) ===", version)
 
 	setAutoStart(autoStartEnabled)
 

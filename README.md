@@ -1,4 +1,4 @@
-# Incott Mouse Driver
+# IncottHIDApp
 
 <p align="center">
   <img src="icons/mouse.png" alt="Incott Mouse" width="120">
@@ -31,14 +31,14 @@ Lightweight Windows system tray utility for **Incott** wireless mice. Communicat
 
 **Other:**
 - Start with Windows (autostart via registry). Config and log files (`settings.json`, `incott.log`) always live next to the executable, so autostart works correctly regardless of the launcher's working directory.
-- **Single-instance guard** — only one copy can run at a time per machine. Launching a second copy (e.g. manually after autostart) shows a "IncottDriver is already running" dialog and exits without touching `settings.json` or `incott.log`. Prevents HID contention between concurrent instances.
+- **Single-instance guard** — only one copy can run at a time per machine. Launching a second copy (e.g. manually after autostart) shows a "IncottHIDApp is already running" dialog and exits without touching `settings.json` or `incott.log`. Prevents HID contention between concurrent instances.
 - Two-level logging (`incott.log`): INFO for user actions, DEBUG for HID protocol details
 - **Update notifications** — checks GitHub Releases on startup; a new menu item appears when a newer version is available. Clicking it opens the release page in the browser. The repo used for checks is configurable (fork support via `update_repo` setting)
 - Automatic device detection — works with Ghero, G23, G24, G23V2, Zero 29, Zero 39 (same chipset, different firmware)
 
 ## Download
 
-Grab the latest `IncottDriver.exe` from [Releases](../../releases) — no installation needed, just run it.
+Grab the latest `IncottHIDApp.exe` from [Releases](../../releases) — no installation needed, just run it.
 
 Releases are built automatically by GitHub Actions on every `v*` tag push.
 
@@ -94,7 +94,7 @@ The workflow at `.github/workflows/release.yml` runs tests, builds the Windows b
      ```
    - **Direct go build** (skips tests):
      ```bash
-     go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w" .
+     go build -o IncottHIDApp.exe -ldflags="-H windowsgui -s -w" .
      ```
      Release builds on CI also inject the version via `-X main.version=v1.0.0` which enables the in-app update checker.
 
@@ -109,7 +109,7 @@ The workflow at `.github/workflows/release.yml` runs tests, builds the Windows b
        icons[0].save(name, format='ICO', sizes=[(s,s) for s in sizes], append_images=icons[1:])
    "
    windres icons/app.rc -o app_windows.syso
-   go build -o IncottDriver.exe -ldflags="-H windowsgui" .
+   go build -o IncottHIDApp.exe -ldflags="-H windowsgui" .
    ```
 
 ### Docker (cross-compile)
@@ -119,7 +119,7 @@ Build the Windows exe from any OS using Docker:
 ```bash
 docker run --rm -v "$(pwd):/src" -w /src \
   x1unix/go-mingw:1.24 \
-  go build -o IncottDriver.exe -ldflags="-H windowsgui" .
+  go build -o IncottHIDApp.exe -ldflags="-H windowsgui" .
 ```
 
 > The `x1unix/go-mingw` image includes Go + MinGW-w64 cross-compiler for Windows. The resulting exe will not have the embedded Windows icon (`app_windows.syso` must be compiled with `windres` on Windows).

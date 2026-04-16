@@ -42,7 +42,7 @@ jobs:
       - name: Build binary
         env:
           CGO_ENABLED: 1
-        run: go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=${{ github.ref_name }}" .
+        run: go build -o IncottHIDApp.exe -ldflags="-H windowsgui -s -w -X main.version=${{ github.ref_name }}" .
 
       - name: Extract tag annotation
         shell: bash
@@ -67,8 +67,8 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG exists — updating notes and asset"
             gh release edit "$TAG" --notes-file release_body.md
-            gh release upload "$TAG" IncottDriver.exe --clobber
+            gh release upload "$TAG" IncottHIDApp.exe --clobber
           else
             echo "Creating new release $TAG"
-            gh release create "$TAG" IncottDriver.exe --notes-file release_body.md --title "$TAG"
+            gh release create "$TAG" IncottHIDApp.exe --notes-file release_body.md --title "$TAG"
           fi

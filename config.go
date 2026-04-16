@@ -15,7 +15,8 @@ import (
 )
 
 const (
-	appName           = "IncottDriver"        // Registry key name
+	appName           = "IncottHIDApp"          // Registry key name
+	legacyAppName     = "IncottDriver"          // Previous registry key name — removed on every setAutoStart call to clean up after rename
 	defaultUpdateRepo = "romkazor/IncottHIDApp" // Fallback GitHub repo for update checks
 )
 
@@ -155,6 +156,11 @@ func setAutoStart(enable bool) {
 		return
 	}
 	defer k.Close()
+
+	// Remove any leftover entry written by older builds under the legacy name.
+	if err := k.DeleteValue(legacyAppName); err == nil {
+		logDebug("removed legacy autostart entry: %s", legacyAppName)
+	}
 
 	if enable {
 		err = k.SetStringValue(appName, fmt.Sprintf(`"%s"`, exePath))

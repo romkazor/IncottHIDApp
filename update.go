@@ -87,7 +87,7 @@ func checkForUpdate() (latest string, url string, hasUpdate bool, err error) {
 		return "", "", false, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "IncottDriver")
+	req.Header.Set("User-Agent", "IncottHIDApp")
 
 	resp, err := client.Do(req)
 	if err != nil {

@@ -1,4 +1,4 @@
-BINARY := IncottDriver.exe
+BINARY := IncottHIDApp.exe
 LDFLAGS := -H windowsgui
 
 .PHONY: all build test vet clean run

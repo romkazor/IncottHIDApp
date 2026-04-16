@@ -8,9 +8,9 @@ if errorlevel 1 (
 )
 echo.
 echo Tests passed. Building binary...
-go build -o IncottDriver.exe -ldflags="-H windowsgui" .
+go build -o IncottHIDApp.exe -ldflags="-H windowsgui" .
 if errorlevel 1 (
     echo Build FAILED.
     exit /b 1
 )
-echo Build successful: IncottDriver.exe
+echo Build successful: IncottHIDApp.exe

@@ -21,8 +21,8 @@ mingw32-make build
 ./build.bat
 
 # Direct build with version injected for update checker
-go build -o IncottDriver.exe -ldflags="-H windowsgui -s -w -X main.version=v0.1.0" .
-./IncottDriver.exe
+go build -o IncottHIDApp.exe -ldflags="-H windowsgui -s -w -X main.version=v0.1.0" .
+./IncottHIDApp.exe
 ```
 
 Linker flags:
@@ -73,7 +73,7 @@ windres app.rc -o app_windows.syso
 | File | Responsibility |
 |---|---|
 | `main.go` | Entry point, tray icon via `go:embed icons/tray_icon.ico`, `var version` (ldflags-injected). First statement calls `acquireSingleInstance()` — on failure shows a MessageBox and returns before any other init. Then calls `initPaths`, spawns `mouseWorker` / `gameMonitorWorker` / `updateCheckWorker` |
-| `instance.go` | Single-instance guard via `CreateMutexW` (`kernel32.dll`) with fixed GUID name `Global\IncottDriver-{...}`. `acquireSingleInstance` returns false when another instance already holds the mutex (detected via `ERROR_ALREADY_EXISTS` in `e1`). `showAlreadyRunningDialog` uses `MessageBoxW` (`user32.dll`). Fails open on unexpected errors (logs nothing and allows startup) |
+| `instance.go` | Single-instance guard via `CreateMutexW` (`kernel32.dll`) with fixed GUID name `Global\IncottHIDApp-{...}`. `acquireSingleInstance` returns false when another instance already holds the mutex (detected via `ERROR_ALREADY_EXISTS` in `e1`). `showAlreadyRunningDialog` uses `MessageBoxW` (`user32.dll`). Fails open on unexpected errors (logs nothing and allows startup) |
 | `config.go` | `AppConfig` struct, `loadConfig`/`saveConfig`, `setAutoStart` (registry), `promptForExe` (PowerShell dialog) with `escapePowerShellSingleQuoted`, `parseTargetApps`/`setTargetApps`, `isValidRepo` (regex allowlist), `initPaths`/`resolvePath` (absolute paths next to exe), `defaultUpdateRepo` constant |
 | `logging.go` | `logInfo` (always writes), `logDebug` (only when `debugEnabled atomic.Bool` is true). Log file: `incott.log` |
 | `device.go` | HID constants, pre-allocated report buffers, all `apply*` functions, pure parsing helpers (`parseStatus`, `parseLODByte`, `parseMotionSyncByte`, `parseSleepBytes`, `parseDebounceByte`, `parseToggleByte`, `parseReceiverLEDByte`), `mouseWorker`, `gameMonitorWorker`, `findRunningApp`, `isMouseDevice` |
@@ -92,13 +92,13 @@ windres app.rc -o app_windows.syso
 | `icons/app.ico` + `icons/app.rc` | Windows exe icon (compiled into `app_windows.syso` via `windres`) |
 | `settings.json.example` | Reference config with all fields |
 | `LICENSE` | MIT |
-| `.gitignore` | Excludes `IncottDriver.exe`, `incott.log`, `settings.json`, `app_windows.syso`, `docs/`, `.claude/` |
+| `.gitignore` | Excludes `IncottHIDApp.exe`, `incott.log`, `settings.json`, `app_windows.syso`, `docs/`, `.claude/` |
 
 ## Architecture
 
 ### Startup
 
-1. `main()` calls `acquireSingleInstance()` **first**, before `initPaths` / `loadConfig` / logger / goroutines. This creates a named mutex `Global\IncottDriver-{b5a1c2f8-4d7e-4a8f-9c1d-2e3f4a5b6c7d}` via `CreateMutexW` (direct `syscall.NewLazyDLL("kernel32.dll").NewProc("CreateMutexW").Call`). If `ERROR_ALREADY_EXISTS` (183) is returned in `e1`, the second instance shows a `MessageBoxW` and returns — `settings.json` and `incott.log` are not touched. The `Global\` prefix makes the guard machine-wide (one instance per machine, including across RDP/fast user switching). On any other `CreateMutexW` failure the guard fails open and startup continues.
+1. `main()` calls `acquireSingleInstance()` **first**, before `initPaths` / `loadConfig` / logger / goroutines. This creates a named mutex `Global\IncottHIDApp-{b5a1c2f8-4d7e-4a8f-9c1d-2e3f4a5b6c7d}` via `CreateMutexW` (direct `syscall.NewLazyDLL("kernel32.dll").NewProc("CreateMutexW").Call`). If `ERROR_ALREADY_EXISTS` (183) is returned in `e1`, the second instance shows a `MessageBoxW` and returns — `settings.json` and `incott.log` are not touched. The `Global\` prefix makes the guard machine-wide (one instance per machine, including across RDP/fast user switching). On any other `CreateMutexW` failure the guard fails open and startup continues.
 2. Mutex handle is held in the package variable `instanceMutexHandle` for process lifetime; kernel releases it automatically on process exit (clean exit, kill, or crash), so there's no stale state like a lock file.
 3. Direct `syscall.NewLazyDLL` is used instead of `golang.org/x/sys/windows.CreateMutex` because the `x/sys/windows` wrapper only populates `err` when `handle == 0` — we need to detect `ERROR_ALREADY_EXISTS` with a valid handle, which is only reliably captured via the `e1` return from `proc.Call()`.
 
@@ -166,7 +166,7 @@ Receiver LED modes: `0x00`=Connect & polling rate, `0x01`=Battery status, `0x02`
 ### Persistence
 
 - **`settings.json`** — stores `target_game_exe` (comma-separated app list), `auto_boost`, `auto_start`, `debug`, `update_repo`. Loaded on startup, saved on setting changes. **Not created on first launch** — only written when the user changes a setting. See `settings.json.example` for reference.
-- **Windows Registry** (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) — autostart entry under key `IncottDriver`.
+- **Windows Registry** (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) — autostart entry under key `IncottHIDApp`. On every `setAutoStart` call the legacy key `IncottDriver` (from builds before the rename) is also deleted, so upgraded users don't end up with two Run entries.
 
 ### Performance Notes
 

@@ -1,4 +1,4 @@
-module incott-driver
+module incotthidapp
 
 go 1.26.0
 

@@ -522,7 +522,7 @@ func mouseWorker() {
 			deviceName = "Incott Mouse"
 		}
 		if statusItem != nil {
-			systray.SetTooltip("Incott Mouse Driver " + version + " — " + deviceName)
+			systray.SetTooltip("IncottHIDApp " + version + " — " + deviceName)
 		}
 		logDebug("device opened: %s (VID: 0x%04X)", deviceName, vendorID)
 

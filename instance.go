@@ -15,7 +15,7 @@ var (
 const (
 	errAlreadyExists  = syscall.Errno(183)
 	mbIconInformation = 0x00000040
-	instanceMutexName = `Global\IncottDriver-{b5a1c2f8-4d7e-4a8f-9c1d-2e3f4a5b6c7d}`
+	instanceMutexName = `Global\IncottHIDApp-{b5a1c2f8-4d7e-4a8f-9c1d-2e3f4a5b6c7d}`
 )
 
 var instanceMutexHandle uintptr
@@ -37,8 +37,8 @@ func acquireSingleInstance() bool {
 }
 
 func showAlreadyRunningDialog() {
-	title, _ := syscall.UTF16PtrFromString("IncottDriver")
-	text, _ := syscall.UTF16PtrFromString("IncottDriver is already running.")
+	title, _ := syscall.UTF16PtrFromString("IncottHIDApp")
+	text, _ := syscall.UTF16PtrFromString("IncottHIDApp is already running.")
 	procMessageBoxW.Call(
 		0,
 		uintptr(unsafe.Pointer(text)),
