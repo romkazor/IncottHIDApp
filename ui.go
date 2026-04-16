@@ -252,7 +252,7 @@ func updateCheckmarks() {
 func onReady() {
 	systray.SetIcon(iconData)
 	systray.SetTitle("Incott")
-	systray.SetTooltip("Incott Mouse Driver")
+	systray.SetTooltip("Incott Mouse Driver " + version)
 
 	statusItem = systray.AddMenuItem("Searching for mouse...", "Current status")
 	statusItem.Disable()
