@@ -475,41 +475,57 @@ func mouseWorker() {
 			continue
 		}
 
-		var targetDevice hid.Device
-		var devProduct string
-		for _, info := range devs {
-			if info.UsagePage == 0xFF05 {
-				if !isMouseDevice(info.Product) {
-					logDebug("skipped non-mouse device: %q", info.Product)
-					continue
-				}
-				dev, err := info.Open()
-				if err == nil {
-					targetDevice = dev
-					devProduct = info.Product
-					break
-				}
-			}
-		}
-		if targetDevice == nil {
-			for _, info := range devs {
-				if info.UsagePage >= 0xFF00 {
-					if !isMouseDevice(info.Product) {
-						continue
-					}
-					dev, err := info.Open()
-					if err == nil {
-						targetDevice = dev
-						devProduct = info.Product
-						break
-					}
-				}
-			}
-		}
-		if targetDevice == nil {
-			time.Sleep(3 * time.Second)
-			continue
-		}
+var targetDevice hid.Device
+var devProduct string
+
+for _, info := range devs {
+	logDebug("enum: path=%s product=%q usagePage=0x%04X usage=0x%04X iface=%d",
+		info.Path, info.Product, info.UsagePage, info.Usage, info.Interface)
+}
+
+// Candidates: 0xFF05 first, other vendor pages next, everything else last.
+var cands []hid.DeviceInfo
+for _, info := range devs {
+	if info.UsagePage == 0xFF05 {
+		cands = append(cands, info)
+	}
+}
+for _, info := range devs {
+	if info.UsagePage >= 0xFF00 && info.UsagePage != 0xFF05 {
+		cands = append(cands, info)
+	}
+}
+for _, info := range devs {
+	if info.UsagePage < 0xFF00 {
+		cands = append(cands, info)
+	}
+}
+
+for _, info := range cands {
+	if !isMouseDevice(info.Product) {
+		continue
+	}
+	dev, err := info.Open()
+	if err != nil {
+		logDebug("open failed: usagePage=0x%04X iface=%d: %v", info.UsagePage, info.Interface, err)
+		continue
+	}
+	probe := [9]byte{0x09, 0x89}
+	if _, err := dev.SendFeatureReport(probe[:]); err != nil {
+		logDebug("probe failed: usagePage=0x%04X iface=%d: %v", info.UsagePage, info.Interface, err)
+		dev.Close()
+		continue
+	}
+	logDebug("selected: usagePage=0x%04X usage=0x%04X iface=%d", info.UsagePage, info.Usage, info.Interface)
+	targetDevice = dev
+	devProduct = info.Product
+	break
+}
+
+if targetDevice == nil {
+	time.Sleep(3 * time.Second)
+	continue
+}
 
 		// Hold mu during the entire init sequence so UI-triggered apply* calls
 		// cannot call SendFeatureReport concurrently on the same handle.
